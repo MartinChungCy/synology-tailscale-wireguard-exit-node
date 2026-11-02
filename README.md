@@ -27,14 +27,13 @@ Your Mac / phone
 
 - **gluetun** connects the NAS to Surfshark with WireGuard.
 - **ts-exit** (Tailscale) runs *inside gluetun's network* (`network_mode: service:gluetun`), so all exit-node traffic leaves through the VPN.
-- Three small fixes make this work on a Synology (sections 5–7).
+- Three small fixes make this work on a Synology (sections 4–6).
 
 ## 2. Requirements
 
 - Synology NAS with **Container Manager** (Docker + Compose) and SSH access.
 - A Surfshark **dedicated IP** that offers a **WireGuard** config (check your account's manual setup page; if only OpenVPN is offered, this guide's WireGuard part will not apply).
 - A Tailscale account. In the admin console you will need to **approve the exit node** after it first advertises itself.
-- Know your home LAN subnet (example here: `192.168.1.0/24`).
 
 ## 3. Get the WireGuard values from Surfshark
 
@@ -55,8 +54,8 @@ From your dedicated-IP WireGuard config note:
 SSH into the NAS and create the project folder and the gluetun rules file. gluetun's firewall drops forwarded traffic by default, so this file allows Tailscale ⇄ VPN forwarding and masquerades outgoing traffic.
 
 ```bash
+sudo mkdir -p /volume1/docker/vpn-gateway/iptables
 cd /volume1/docker/vpn-gateway
-sudo mkdir -p iptables
 sudo tee iptables/post-rules.txt >/dev/null <<'EOF'
 iptables -I FORWARD -i tailscale0 -o tun0 -j ACCEPT
 iptables -I FORWARD -i tun0 -o tailscale0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -182,9 +181,7 @@ On the client (turn off any other VPN app first):
 |---|---|---|
 | gluetun: `endpoint IP is not set` | WireGuard settings missing, endpoint is a hostname | Add `VPN_ENDPOINT_IP` (an IP), port, public key, private key, addresses; remove the OpenVPN lines |
 | gluetun restarts, `failed to pass the healthcheck` | Wrong port (`51280` instead of `51820`) | Use the port from the config's `Endpoint` line |
-| Exit node gives **no internet**; `ts-exit` log shows `Extension CONNMARK revision 0 not supported` and `router config failed` | Synology kernel has no CONNMARK module, so Tailscale cannot set up its firewall | Add `--netfilter-mode=off` and provide forwarding/masquerade rules through gluetun's `post-rules.txt` |
-| Loading a missing kernel module is not possible | `/lib/modules` has `xt_conntrack`/`xt_mark` but no CONNMARK module | Use the netfilter-off approach instead |
-| `rp_filter=2` sysctl did not help | The workaround was still triggered | Optional; not needed in the final setup |
+| Exit node gives **no internet**; `ts-exit` log shows `Extension CONNMARK revision 0 not supported` and `router config failed` | Synology kernel has no CONNMARK module (`/lib/modules` has `xt_conntrack`/`xt_mark` but no way to load CONNMARK), so Tailscale cannot set up its firewall | Add `--netfilter-mode=off` and provide forwarding/masquerade rules through gluetun's `post-rules.txt` |
 | Traffic leaves but replies are dropped (FORWARD policy dropped thousands of packets, return rule counted 0) | VPN routing rule beats Tailscale's | The `ip rule add to 100.64.0.0/10 lookup 52 priority 90` fix |
 | `iptables` inside gluetun errors (`nf_tables ... Invalid argument`) | Kernel only supports legacy iptables | Use `iptables-legacy` for inspection |
 | Container Manager "Stop" hangs; YAML is read-only while the project runs | Project state out of sync after several rebuilds | `cd /volume1/docker/vpn-gateway && sudo docker compose down`, edit the YAML, save and rebuild |
